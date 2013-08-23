@@ -16,3 +16,11 @@ Parser: komt een message in, gaat een element uit
 	<challenge xmlns="...">
 		BINARY_8: 31 e3 b5 e4 5c 35 b4 9a f2 f8 91 4c 24 8a 52 4a da 05 18 44
 	</challenge>
+
+
+===========================
+
+element(tag_name, [attributes], [data])
+
+ - attributes: an object containing the attributes as key-value pairs
+ - data: either a buffer containing the data or an array containing child elements

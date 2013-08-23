@@ -11,12 +11,29 @@ var socket = net.connect({
 var writer = new Writer(socket); // TODO: would be nicer if we could pipe the writer to the socket, instead of passing it as dependency?
 var reader = new Reader();
 
+// TODO: create a parser that transforms messages into their xml equivalent
+
 socket.pipe(reader).on('data', function (message) {
+	var element = parser(message); // TODO: Use pipeline to convert messages into elements
+
+	/*
+	console.log('Message:');
 	console.log(message);
+	console.log('Element:');
+	console.log(element);
+	*/
 
-	parser(message);
+	switch (element.name) {
+		case 'challenge':
+			console.log('Nonce:');
+			console.log(element.children);
 
-	// TODO: create a parser that transforms messages into their xml equivalent
+			// Derive key
+			// Implement RC4Drop
+			// Set key on upstream/downstream
+			// DONE :)
+		break;
+	}
 });
 
 /*

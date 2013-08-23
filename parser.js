@@ -4,10 +4,10 @@ var element = require('./element');
 function parser(message) {
   var pointer = 0;
 
-  // Skip first 2 bytes
+  // Skip first 2 bytes, TODO: the reader should strip these, as its not the parsers task to distinguish between message header/body
   readInt8(2);
 
-  // If we've got a list
+  // If we've got a list, TODO: we always get a list; just parse asList :)
   if (readInt8() === 0xf8) {
     return asList();
   } else {
@@ -54,7 +54,7 @@ function parser(message) {
             // parse it as a list (recursive)
             children.push(asList());
           } else {
-            throw new Error("Unable to parse message: no list found.."); // TODO: duplicate? put it in asList?
+            throw new Error("Unable to parse message: no list found.."); // TODO: duplicate? put it in asList? feels clumsy
           }
         }
       }
