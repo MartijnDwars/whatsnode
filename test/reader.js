@@ -7,7 +7,6 @@ var testStream = function (stream, input, output) {
 	});
 
 	stream.read().should.eql(output);
-	console.log(output);
 };
 
 describe('Reader', function () {
