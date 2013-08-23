@@ -1,0 +1,18 @@
+Parser: komt een message in, gaat een element uit
+
+
+<Buffer 00 00 05 f8 03 01 41 ab>
+
+	<stream:stream from="s.whatsapp.net">
+
+<Buffer 00 00 08 f8 02 bb f8 01 f8 01 9c>
+	
+	<stream:features>
+		<receipt_acks />
+	</stream:features>
+
+<Buffer 00 00 1b f8 04 1b e8 cf fc 14 31 e3 b5 e4 5c 35 b4 9a f2 f8 91 4c 24 8a 52 4a da 05 18 44>
+
+	<challenge xmlns="...">
+		BINARY_8: 31 e3 b5 e4 5c 35 b4 9a f2 f8 91 4c 24 8a 52 4a da 05 18 44
+	</challenge>
