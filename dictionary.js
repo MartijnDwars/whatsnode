@@ -266,7 +266,7 @@ Dictionary.prototype.getValue = function (key) {
 };
 
 Dictionary.prototype.getKey = function (value) {
-	return _.findKey(this.dictionary, value);
+	return this.dictionary.indexOf(value);
 };
 
 module.exports = new Dictionary();

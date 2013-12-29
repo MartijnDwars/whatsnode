@@ -1,55 +1,123 @@
-var Writer = require('./writer');
 var Reader = require('./reader');
+var Writer = require('./writer');
+var Encoder = require('./encoder');
+var decoder = require('./decoder');
 var parser = require('./parser');
+var unparser = require('./unparser');
+var element = require('./element');
+var rc4drop = require('./rc4drop');
+var utils = require('./utils');
 var net = require('net');
+var crypto = require('crypto');
 
-var socket = net.connect({
-	host: 'c.whatsapp.net',
-	port: 5222
-});
-
-var writer = new Writer(socket); // TODO: would be nicer if we could pipe the writer to the socket, instead of passing it as dependency?
+var writer = new Writer(socket);
 var reader = new Reader();
+var decoder = new Decoder();
+var encoder = new Encoder();
+var encodeCipher;
+var key;
 
-// TODO: create a parser that transforms messages into their xml equivalent
+var password = 'mAfCZpby1DbPqZ9j8RFdUqJ5dsw=';
+var phone = '12526534487';
 
-socket.pipe(reader).on('data', function (message) {
-	var element = parser(message); // TODO: Use pipeline to convert messages into elements
+socket.pipe(reader).pipe(decoder).on('data', function (message) {
+	var node = parser(message);
 
-	/*
-	console.log('Message:');
+	console.log('< Message:');
 	console.log(message);
-	console.log('Element:');
-	console.log(element);
-	*/
+	console.log('< Element:');
+	console.log(require('util').inspect(node, false, null));
 
-	switch (element.name) {
+	switch (node.name) {
 		case 'challenge':
-			console.log('Nonce:');
-			console.log(element.children);
+			// Store nonce
+			var nonce = node.children;
 
 			// Derive key
-			// Implement RC4Drop
-			// Set key on upstream/downstream
-			// DONE :)
+			key = crypto.pbkdf2Sync(new Buffer(password, 'base64'), nonce, 16, 20);
+
+			// Set key on decoder
+			decoder.setKey(key);
+
+			// Create encoder, decoder & hasher streams
+			encodeCipher = new rc4drop(key, 256);
+			var hasher = crypto.createHmac('sha1', key);
+
+			// Create response body
+			var timestamp = utils.timestamp();
+			var body = Buffer.concat([
+				new Buffer(phone),
+				nonce,
+				new Buffer(timestamp.toString())
+			]);
+
+			// Encrypt data, create signature, concatenate and send
+			var encodedData = encodeCipher.encrypt(body);
+			var hasher = crypto.createHmac('sha1', key);
+			hasher.write(encodedData, function () {
+				hasher.end(function () {
+					var signature = hasher.read(4);
+					var response = Buffer.concat([
+						signature,
+						encodedData
+					]);
+
+					// Construct <response xmlns="..">[...]</response> node
+					var response = element('response', {
+						xmlns: 'urn:ietf:params:xml:ns:xmpp-sasl'
+					}, response);
+
+					// Send back response
+					writer.write(unparser(response), function () {
+						console.log('> Written <response /> message');
+					});
+				});
+			});
+		break;
+
+		case 'success':
+			// If authentication went successful, set encoder on encrypter
+			writer.setCipher(encodeCipher);
+			writer.setKey(key);
+			writer.setEncoded(true);
+
+			var presence = element('presence', {
+				type: 'available',
+				name: 'Koen'
+			});
+
+			writer.write(unparser(presence), function () {
+				console.log('Written <presence />');
+			});
+		break;
+
+		case 'iq':
+			var iq = element('iq', {
+				to: 's.whatsapp.net',
+				id: node.attrs.id,
+				type: 'result'
+			});
+
+			writer.write(unparser(iq), function () {
+				console.log('Written pong (reply to iq)');
+			});
 		break;
 	}
 });
 
-/*
-var stream = new Element('stream:stream', {
+var stream = element('stream:stream', {
 	to: 's.whatsapp.net',
-	resource: 'iPhone-2.6.9-5222'
+	resource: 'WP7-2.9.4-5222'
 });
-*/
 
-// TODO: create a parser that transforms elements into their message equivalent
-
-//writer.write(stream);
-
-writer.write(new Buffer('\x00\x00\x16\xf8\x05\x01\xc8\xab\xa5\xfc\x0e\x57\x50\x37\x2d\x32\x2e\x39\x2e\x34\x2d\x35\x32\x32\x32', 'binary'), 'binary', function () {
-	console.log('Written');
+var auth = element('auth', {
+	xmlns: 'urn:ietf:params:xml:ns:xmpp-sasl',
+	mechanism: 'WAUTH-1',
+	user: phone
 });
-writer.write(new Buffer('\x00\x00\x15\xf8\x07\x10\xe8\xcf\x6d\xec\xda\xfc\x0b\x33\x31\x36\x33\x30\x30\x38\x36\x39\x30\x39', 'binary'), 'binary', function () {
-	console.log('Written 2');
+
+writer.write(unparser(stream), 'binary', function () {
+	writer.write(unparser(auth), 'binary', function () {
+		console.log('> Written <stream /> and <auth /> messages');
+	});
 });

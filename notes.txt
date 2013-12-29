@@ -1,26 +1,125 @@
-Parser: komt een message in, gaat een element uit
+Architecture overview
+=====================
+At the core, we have a net.Socket object. This socket is an instance of a duplex stream. Since TCP is a byte stream, we pipe the output of the socket through a reader. The main responsibility of the reader is to transform the byte stream into a stream of WhatsApp messages. Internally, a WhatsApp message is just a Node.js Buffer object containing a fixed-sized number of bytes; the first three of which are the message header.
+
+These messages are piped through a decoder. The main responsibility of the decoder is to decode the message (using a given rc4-drop cipher stream) if it is encoded. It emits the decoded body part of the message (e.g. strips off the header and checksum). To do so, it needs to be provided a keystream at some point.
 
 
-<Buffer 00 00 05 f8 03 01 41 ab>
-
-	<stream:stream from="s.whatsapp.net">
-
-<Buffer 00 00 08 f8 02 bb f8 01 f8 01 9c>
-	
-	<stream:features>
-		<receipt_acks />
-	</stream:features>
-
-<Buffer 00 00 1b f8 04 1b e8 cf fc 14 31 e3 b5 e4 5c 35 b4 9a f2 f8 91 4c 24 8a 52 4a da 05 18 44>
-
-	<challenge xmlns="...">
-		BINARY_8: 31 e3 b5 e4 5c 35 b4 9a f2 f8 91 4c 24 8a 52 4a da 05 18 44
-	</challenge>
+On the other side we start with the unparser. Its job is to "un-parse" XML elements into WhatsApp bodies. Then its the encrypters turn to encode the bodies (using RC4-drop[256] cipher algorithm, more about that later). The encrypter also adds a signature to the body. Once the encrypter is done, the writer prepends a header to the body and passes the complete packet to the socket.
 
 
+Data flow
+=========
+Parser          Unparser                [Elements]
+  
+  ^                 |
+  |                 |
+  |                 ∨
+
+Decrypter       Encrypter               [Bodies]
+
+  ^                 |
+  |                 |
+  |                 ∨
+
+Reader           Writer                 [Messages]
+
+  ^                |
+  |                |
+  |                ∨
+   \              /
+     \          /
+       \      /
+        Socket                          [Bytes]
+
+
+
+WhatsApp messages explained
 ===========================
 
-element(tag_name, [attributes], [data])
+Normal message (S -> C, C -> S)
+-------------------------------
+A normal message contains a 3-byte header followed by an arbitrary length body (maximum currently not known). The first header bit indicates whether the message is encrypted. The second and third byte contain a 16-bit integer denoting the length of the body.
 
- - attributes: an object containing the attributes as key-value pairs
- - data: either a buffer containing the data or an array containing child elements
++----------+-------+
+| Header   | Body  |
+| 00 00 00 | .. .. |
++----------+-------+
+
+
+Encrypted message C -> S
+------------------------
+The body consists of the encrypted data, followed by a 4 byte checksum of the encrypted data. The checksum is calculated using the hmac sha1 hashing function. The length specified in the header denotes the complete body length (e.g. body + 4 bytes for the hash).
+
++----------+----------------------------+
+| Header   | Body                       |
+| 10 00 00 | bb bb bb .. .. hh hh hh hh |
++----------+----------------------------+
+
+
+Encrypted message S -> C
+------------------------
+An encrypted message from the server to the client looks the same as from the client to the server, except that the hash and the encrypted body are swapped: first comes the 4-byte hash, then the arbitrary-length body.
+
+
+Bugs
+====
+
+Issue #1 (FIXED)
+--------
+Below does not work as expected (JID_PAIR is not yet implemented in parser)
+
+f8 05 90 41 fa fc 0b 31 32 35 32 36 35 33 34 34 38 37 ab cb 12
+
+f8 = list
+05 = 5 elems
+90 = presence
+41 = from
+fa = JID_PAIR
+fc = BINARY_8
+0b = 11 bytes
+31 32 35 32 36 35 33 34 34 38 37
+ab = s.whatsapp.net
+cb = type
+12 = available
+
+Issue #2 (FIXED)
+--------
+Below does not work as expected (multiple lists in transparant list in parser)
+
+f80a6f41fafc0b3331363330303836393039ab4dfc0c313337393235303139302d33cb1cc3fc0a31333739323532303037f804f8057de8d576fc0d4d617274696a6e204477617273f803a3e8d4f80217fc0548616c6c6ff8017f
+
+element('message', {
+    from: '31630086909@s.whatsapp.net',
+    id: new Buffer(31, 33, 37, 39, 32, 35, 30, 31, 39, 30, 2d, 33),
+    type: 'chat',
+    t: new Buffer(31, 33, 37, 39, 32, 35, 32, 30, 30, 37)
+}, [
+    element('notify', {
+        xmlns: 'urn:xmpp:whatsapp',
+        name: new Buffer(4d, 61, 72, 74, 69, 6a, 6e, 20, 44, 77, 61, 72, 73)
+    }),
+    element('request', {
+        xmlns: 'urn:xmpp:receipts'
+    })
+    element('body', new Buffer('48, 61, 6c, 6c, 6f')
+    element('offline')
+])
+
+Issue #3 (FIXED)
+--------
+When sending a message, the to attribute is: [PHONE]@s.whatsapp.net. This needs to be converted into a JID_PAIR in the unparser
+
+Issue #4 (FIXED)
+--------
+The following produces invalid xml:
+
+var iq = element('iq', {
+    id: utils.timestamp + '-1',
+    to: phone + '@s.whatsapp.net',
+    type: 'get'
+}, [
+    element('query', {
+        xmlns: 'jabber:iq:last'
+    })
+]);

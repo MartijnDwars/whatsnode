@@ -4,9 +4,6 @@ var element = require('./element');
 function parser(message) {
   var pointer = 0;
 
-  // Skip first 2 bytes, TODO: the reader should strip these, as its not the parsers task to distinguish between message header/body
-  readInt8(2);
-
   // If we've got a list, TODO: we always get a list; just parse asList :)
   if (readInt8() === 0xf8) {
     return asList();
@@ -22,16 +19,28 @@ function parser(message) {
     var children = [];
     var data = undefined;
 
+    // If the first tag is a list, this is a transparant list
+    if (tag === 0xf8) {
+      return asList();
+    }
+
     // Iterate through attributes
     for (var i = 0; i < Math.floor((length-1)/2); i++) {
       var key = readInt8();
       var val = readInt8();
-      
-      if (val === 0xfc) {
-        var x = asBinary();
-        attrs[dictionary.getValue(key)] = asBinary().toString('utf-8');
-      } else {
-        attrs[dictionary.getValue(key)] = dictionary.getValue(val);
+
+      switch (val) {
+        case 0xfa:
+          attrs[dictionary.getValue(key)] = asPair();
+        break;
+
+        case 0xfc:
+          attrs[dictionary.getValue(key)] = asBinary();
+        break;
+
+        default:
+          attrs[dictionary.getValue(key)] = dictionary.getValue(val);
+        break;
       }
     }
 
@@ -43,18 +52,13 @@ function parser(message) {
       if (token === 0xfc) {
         var data = asBinary();
 
-      // List as child element
+      // Transparant list as child element
       } else if (token === 0xf8) {
-        // ok, so we know we are going to get a list, so we first get the length
-        var listLength = readInt8();
-        // each element will be a list, because otherwise we will get strange xml (probably not even valid)
-        for (var j = 0; j < listLength; j++) {
-          // if it indeed is a list
+        var length = readInt8();
+
+        for (var i = 0; i < length; i++) {
           if (readInt8() === 0xf8) {
-            // parse it as a list (recursive)
             children.push(asList());
-          } else {
-            throw new Error("Unable to parse message: no list found.."); // TODO: duplicate? put it in asList? feels clumsy
           }
         }
       }
@@ -63,11 +67,25 @@ function parser(message) {
     return new element(dictionary.getValue(tag), attrs, data || children);
   }
 
+  function asString() {
+    var key = readInt8();
+
+    if (key === 0xfc) {
+      return asBinary();
+    } else if (dictionary.getValue(key)) {
+      return dictionary.getValue(key);
+    }
+  }
+
+  function asPair() {
+    return asString().toString('ascii') + '@' + asString();
+  }
+
   function asBinary() {
     var length = readInt8();
     var buffer = message.slice(pointer, pointer + length);
 
-    pointer += length + 1;
+    pointer += length;
     return buffer;
   }
 

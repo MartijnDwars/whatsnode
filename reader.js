@@ -1,9 +1,12 @@
 /**
- * This file represents a readable stream. Its main responsibility is to collect bytes from the socket and transform those bytes into full WhatsApp messages.
+ * This file represents a readable stream. Its main responsibility is to
+ * collect bytes from the socket and transform those bytes into full WhatsApp
+ * messages.
  */
 
-var Transform = require('stream').Transform;
-var util = require('util');
+var Transform = require('stream').Transform
+  , util = require('util')
+  , debug = require('debug')('nodeapp:reader');
 
 function Reader() {
   if (!(this instanceof Reader)) {
@@ -31,6 +34,8 @@ Reader.prototype._transform = function (chunk, encoding, callback) {
       if (this.buffer.length >= length + 3) {
         message = this.buffer.slice(0, length + 3);
 
+        debug('<< ' + message.toString('hex'));
+        
         this.buffer = this.buffer.slice(length + 3);
         this.push(message);
       } else {
